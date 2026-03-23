@@ -47,24 +47,39 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ============================================================
 
 def get_listings():
-    """Obtiene listings activos de CSFloat sin autenticación (endpoint público)."""
+    """Obtiene hasta 500 listings activos de CSFloat usando cursor."""
     url = f"{CSFLOAT_BASE}/listings"
-    params = {
-        "type": "buy_now",
-        "min_price": int(PRECIO_MIN_USD * 100),
-        "max_price": int(PRECIO_MAX_USD * 100),
-        "page": 0,
-        "limit": 50,
-        "sort_by": "best_deal",
-    }
-    try:
-        resp = requests.get(url, params=params, timeout=10)
-        print(f"[DEBUG] Status code: {resp.status_code}")
-        resp.raise_for_status()
-        return resp.json().get("data", [])
-    except Exception as e:
-        print(f"[ERROR] Al obtener listings: {e}")
-        return []
+    headers = {"Authorization": CSFLOAT_API_KEY}
+    todos = []
+    cursor = None
+
+    for _ in range(10):  # 10 páginas x 50 = 500 listings
+        params = {
+            "type": "buy_now",
+            "min_price": int(PRECIO_MIN_USD * 1),
+            "max_price": int(PRECIO_MAX_USD * 99999),
+            "limit": 5000,
+            "sort_by": "most_recent",
+        }
+        if cursor:
+            params["cursor"] = cursor
+
+        try:
+            resp = requests.get(url, headers=headers, params=params, timeout=10)
+            print(f"[DEBUG] Status code: {resp.status_code}")
+            resp.raise_for_status()
+            data = resp.json()
+            items = data.get("data", [])
+            todos.extend(items)
+            cursor = data.get("cursor")
+            if not cursor or len(items) < 50:
+                break
+        except Exception as e:
+            print(f"[ERROR] Al obtener listings: {e}")
+            break
+
+    print(f"[DEBUG] Total listings obtenidos: {len(todos)}")
+    return todos
 
 
 def actualizar_promedio(nombre, precio_usd):
