@@ -173,7 +173,7 @@ async def monitorear():
             diff_promedio = ((promedio - precio_1) / promedio) * 100 if promedio else 0
 
             es_ganga_vs_segundo  = diff_segundo  >= DESCUENTO_VS_SEGUNDO and precio_1 < precio_2
-            es_ganga_vs_promedio = diff_promedio >= DESCUENTO_MINIMO
+            es_ganga_vs_promedio = False
 
             if (es_ganga_vs_segundo or es_ganga_vs_promedio) and id_1 not in alertas_enviadas:
                 alertas_enviadas.add(id_1)
