@@ -53,7 +53,10 @@ def tiene_stickers(item):
 def get_listings():
     """Obtiene hasta 500 listings activos de CSFloat ordenados por best_deal."""
     url     = f"{CSFLOAT_BASE}/listings"
-    headers = {"Authorization": CSFLOAT_API_KEY}
+    headers = {
+    "Authorization": CSFLOAT_API_KEY,
+    "Content-Type": "application/json"
+}
     todos   = []
 
     print(f"[DEBUG] API Key: '{CSFLOAT_API_KEY[:6] if CSFLOAT_API_KEY else 'VACIA'}'...")
