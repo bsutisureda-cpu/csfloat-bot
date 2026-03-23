@@ -20,10 +20,10 @@ DISCORD_TOKEN    = os.environ.get("DISCORD_TOKEN", "")
 CANAL_ALERTAS_ID = int(os.environ.get("CANAL_ALERTAS_ID", "0"))
 CSFLOAT_API_KEY  = os.environ.get("CSFLOAT_API_KEY", "")
 
-DESCUENTO_MINIMO     = 15   # % vs promedio histórico
-DESCUENTO_VS_SEGUNDO = 10   # % vs segundo listing
-PRECIO_MIN_USD       = 10
-PRECIO_MAX_USD       = 500
+DESCUENTO_MINIMO     = 15      # % vs promedio histórico
+DESCUENTO_VS_SEGUNDO = 10      # % vs segundo listing
+PRECIO_MIN_USD       = 1
+PRECIO_MAX_USD       = 99999
 INTERVALO_MINUTOS    = 1
 
 # ============================================================
@@ -52,7 +52,9 @@ def get_listings():
     headers = {"Authorization": CSFLOAT_API_KEY}
     todos = []
 
-    for page in range(10):  # 10 páginas x 50 = 500 listings
+    print(f"[DEBUG] Iniciando get_listings, MIN=${PRECIO_MIN_USD}, MAX=${PRECIO_MAX_USD}")
+
+    for page in range(10):
         params = {
             "type": "buy_now",
             "min_price": int(PRECIO_MIN_USD * 100),
@@ -63,32 +65,17 @@ def get_listings():
         }
         try:
             resp = requests.get(url, headers=headers, params=params, timeout=10)
-            print(f"[DEBUG] Página {page} — Status: {resp.status_code}")
+            print(f"[DEBUG] Pagina {page} — Status: {resp.status_code}")
             resp.raise_for_status()
             data = resp.json()
             items = data.get("data", [])
+            print(f"[DEBUG] Pagina {page} — Items recibidos: {len(items)}")
             if not items:
+                print(f"[DEBUG] Pagina {page} vacia, deteniendo.")
                 break
             todos.extend(items)
         except Exception as e:
-            print(f"[ERROR] Página {page}: {e}")
-            break
-
-    print(f"[DEBUG] Total listings obtenidos: {len(todos)}")
-    return todos
-
-        try:
-            resp = requests.get(url, headers=headers, params=params, timeout=10)
-            print(f"[DEBUG] Status code: {resp.status_code}")
-            resp.raise_for_status()
-            data = resp.json()
-            items = data.get("data", [])
-            todos.extend(items)
-            cursor = data.get("cursor")
-            if not cursor or len(items) < 50:
-                break
-        except Exception as e:
-            print(f"[ERROR] Al obtener listings: {e}")
+            print(f"[ERROR] Pagina {page}: {e}")
             break
 
     print(f"[DEBUG] Total listings obtenidos: {len(todos)}")
@@ -151,7 +138,7 @@ async def monitorear():
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Revisando mercado...")
     canal = bot.get_channel(CANAL_ALERTAS_ID)
     if canal is None:
-        print("[ERROR] No se encontró el canal.")
+        print("[ERROR] No se encontro el canal.")
         return
 
     listings = get_listings()
@@ -209,7 +196,7 @@ async def monitorear():
             print(f"[WARN] Error procesando {nombre}: {e}")
             continue
 
-    print(f"Revisados {len(listings)} listings ({len(listings_por_skin)} skins únicos).")
+    print(f"Revisados {len(listings)} listings ({len(listings_por_skin)} skins unicos).")
 
 
 # ============================================================
@@ -225,8 +212,8 @@ async def on_ready():
         embed = discord.Embed(
             title="✅ CSFloat Alert Bot iniciado",
             description=(
-                f"Descuento mínimo vs promedio: **{DESCUENTO_MINIMO}%**\n"
-                f"Descuento mínimo vs 2do listing: **{DESCUENTO_VS_SEGUNDO}%**\n"
+                f"Descuento minimo vs promedio: **{DESCUENTO_MINIMO}%**\n"
+                f"Descuento minimo vs 2do listing: **{DESCUENTO_VS_SEGUNDO}%**\n"
                 f"Rango de precios: **${PRECIO_MIN_USD} - ${PRECIO_MAX_USD}**\n"
                 f"Intervalo: cada **{INTERVALO_MINUTOS} minuto(s)**"
             ),
@@ -285,10 +272,10 @@ async def reanudar(ctx):
 @bot.command(name="promedio")
 async def promedio(ctx):
     if not precios_promedio:
-        await ctx.send("📭 Todavía no hay datos acumulados.")
+        await ctx.send("📭 Todavia no hay datos acumulados.")
         return
     top = sorted(precios_promedio.items(), key=lambda x: len(x[1]), reverse=True)[:5]
-    embed = discord.Embed(title="📈 Top skins con más datos", color=discord.Color.gold())
+    embed = discord.Embed(title="📈 Top skins con mas datos", color=discord.Color.gold())
     for nombre, historial in top:
         prom = sum(historial) / len(historial)
         embed.add_field(
