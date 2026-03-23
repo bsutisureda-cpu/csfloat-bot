@@ -94,7 +94,10 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 def get_listings():
     """Obtiene listings activos de CSFloat."""
     url = f"{CSFLOAT_BASE}/listings"
-    headers = {"Authorization": CSFLOAT_API_KEY}
+   headers = {
+    "Authorization": CSFLOAT_API_KEY,
+    "Content-Type": "application/json"
+}
     params = {
         "type": "buy_now",
         "min_price": int(PRECIO_MIN_USD * 100),
