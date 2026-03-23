@@ -47,12 +47,10 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ============================================================
 
 def get_listings():
-    """Obtiene hasta 500 listings activos de CSFloat usando paginación."""
+    """Obtiene listings activos de CSFloat."""
     url = f"{CSFLOAT_BASE}/listings"
     headers = {"Authorization": CSFLOAT_API_KEY}
     todos = []
-
-    print(f"[DEBUG] Iniciando get_listings, MIN=${PRECIO_MIN_USD}, MAX=${PRECIO_MAX_USD}")
 
     for page in range(10):
         params = {
@@ -66,12 +64,13 @@ def get_listings():
         try:
             resp = requests.get(url, headers=headers, params=params, timeout=10)
             print(f"[DEBUG] Pagina {page} — Status: {resp.status_code}")
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                print(f"[DEBUG] Respuesta: {resp.text[:200]}")
+                break
             data = resp.json()
-            items = data.get("data", [])
-            print(f"[DEBUG] Pagina {page} — Items recibidos: {len(items)}")
+            print(f"[DEBUG] Keys en respuesta: {list(data.keys()) if isinstance(data, dict) else 'lista'}")
+            items = data.get("data", data.get("listings", [])) if isinstance(data, dict) else data
             if not items:
-                print(f"[DEBUG] Pagina {page} vacia, deteniendo.")
                 break
             todos.extend(items)
         except Exception as e:
