@@ -1,0 +1,1 @@
+worker: python csfloat_discord_bot.py
