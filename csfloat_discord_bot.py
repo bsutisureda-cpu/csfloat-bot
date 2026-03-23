@@ -94,7 +94,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 def get_listings():
     """Obtiene listings activos de CSFloat."""
     url = f"{CSFLOAT_BASE}/listings"
-    headers = {"Authorization": CSFLOAT_API_KEY}
     params = {
         "type": "buy_now",
         "min_price": int(PRECIO_MIN_USD * 100),
@@ -103,9 +102,9 @@ def get_listings():
         "limit": 50,
         "sort_by": "lowest_price",
     }
-    print(f"[DEBUG] Usando API Key: {CSFLOAT_API_KEY[:6]}...")
     try:
-        resp = requests.get(url, headers=headers, params=params, timeout=10)
+        resp = requests.get(url, params=params, timeout=10)
+        print(f"[DEBUG] Status code: {resp.status_code}")
         resp.raise_for_status()
         return resp.json().get("data", [])
     except Exception as e:
