@@ -63,7 +63,7 @@ PRECIO_MIN_USD = 10
 PRECIO_MAX_USD = 500
 
 # Cada cuántos minutos revisar el mercado
-INTERVALO_MINUTOS = 3
+INTERVALO_MINUTOS = 1
 
 # Descuento mínimo comparando el 1er listing vs el 2do del mismo skin
 DESCUENTO_VS_SEGUNDO = 10   # 10% más barato que el segundo → alerta
