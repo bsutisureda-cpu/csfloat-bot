@@ -20,7 +20,7 @@ DISCORD_TOKEN    = os.environ.get("DISCORD_TOKEN", "")
 CANAL_ALERTAS_ID = int(os.environ.get("CANAL_ALERTAS_ID", "0"))
 CSFLOAT_API_KEY  = os.environ.get("CSFLOAT_API_KEY", "")
 
-DESCUENTO_MINIMO     = 15      # % vs promedio histórico
+DESCUENTO_MINIMO     = 25      # % vs promedio histórico
 DESCUENTO_VS_SEGUNDO = 10      # % vs segundo listing
 PRECIO_MIN_USD       = 1
 PRECIO_MAX_USD       = 99999
@@ -173,7 +173,7 @@ async def monitorear():
             diff_promedio = ((promedio - precio_1) / promedio) * 100 if promedio else 0
 
             es_ganga_vs_segundo  = diff_segundo  >= DESCUENTO_VS_SEGUNDO and precio_1 < precio_2
-            es_ganga_vs_promedio = False
+            es_ganga_vs_promedio = diff_promedio >= DESCUENTO_MINIMO and promedio is not None
 
             if (es_ganga_vs_segundo or es_ganga_vs_promedio) and id_1 not in alertas_enviadas:
                 alertas_enviadas.add(id_1)
