@@ -55,7 +55,7 @@ def get_listings():
         "max_price": int(PRECIO_MAX_USD * 100),
         "page": 0,
         "limit": 50,
-        "sort_by": "highest_discount",
+        "sort_by": "best_deal",
     }
     try:
         resp = requests.get(url, params=params, timeout=10)
