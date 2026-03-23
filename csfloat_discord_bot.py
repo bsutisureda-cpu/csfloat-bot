@@ -1,12 +1,13 @@
 """
 CSFloat Alert Bot para Discord
 ================================
-Monitorea listings en CSFloat y te avisa cuando aparece un skin
-con precio X% por debajo del promedio del mercado o del segundo listing.
+Monitorea listings en CSFloat y avisa cuando un skin esta
+X% mas barato que el precio mediano actual en CSFloat.
 """
 
 import requests
 import os
+import statistics
 import discord
 from discord.ext import commands, tasks
 from collections import defaultdict
@@ -20,22 +21,24 @@ DISCORD_TOKEN    = os.environ.get("DISCORD_TOKEN", "")
 CANAL_ALERTAS_ID = int(os.environ.get("CANAL_ALERTAS_ID", "0"))
 CSFLOAT_API_KEY  = os.environ.get("CSFLOAT_API_KEY", "")
 
-DESCUENTO_MINIMO     = 25      # % vs promedio histórico
-DESCUENTO_VS_SEGUNDO = 10      # % vs segundo listing
-PRECIO_MIN_USD       = 1
-PRECIO_MAX_USD       = 99999
-INTERVALO_MINUTOS    = 1
+# Descuento mínimo vs precio mediano de CSFloat para alertar
+DESCUENTO_MINIMO = 10      # % vs mediano de CSFloat
+
+PRECIO_MIN_USD   = 1
+PRECIO_MAX_USD   = 99999
+INTERVALO_MINUTOS = 1
+
+# Mínimo de listings del mismo skin para calcular mediano confiable
+MIN_LISTINGS_PARA_MEDIANO = 2
 
 # ============================================================
 
 CSFLOAT_BASE = "https://csfloat.com/api/v1"
 
-precios_promedio  = defaultdict(list)
 alertas_enviadas  = set()
 bot_pausado       = False
 total_alertas     = 0
 inicio_bot        = datetime.now()
-listings_por_skin = defaultdict(list)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -47,7 +50,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ============================================================
 
 def get_listings():
-    """Obtiene listings activos de CSFloat."""
+    """Obtiene hasta 500 listings activos de CSFloat usando paginación."""
     url = f"{CSFLOAT_BASE}/listings"
     headers = {"Authorization": CSFLOAT_API_KEY}
     todos = []
@@ -68,7 +71,6 @@ def get_listings():
                 print(f"[DEBUG] Respuesta: {resp.text[:200]}")
                 break
             data = resp.json()
-            print(f"[DEBUG] Keys en respuesta: {list(data.keys()) if isinstance(data, dict) else 'lista'}")
             items = data.get("data", data.get("listings", [])) if isinstance(data, dict) else data
             if not items:
                 break
@@ -81,21 +83,30 @@ def get_listings():
     return todos
 
 
-def actualizar_promedio(nombre, precio_usd):
-    historial = precios_promedio[nombre]
-    historial.append(precio_usd)
-    if len(historial) > 20:
-        historial.pop(0)
+def agrupar_por_skin(listings):
+    """Agrupa listings por nombre de skin."""
+    grupos = defaultdict(list)
+    for item in listings:
+        try:
+            nombre     = item["item"].get("market_hash_name", "Desconocido")
+            precio     = item["price"] / 100
+            float_val  = item["item"].get("float_value", 0)
+            listing_id = item["id"]
+            is_st      = item["item"].get("is_stattrak", False)
+            rareza     = item["item"].get("rarity_name", "")
+            grupos[nombre].append({
+                "precio": precio,
+                "id": listing_id,
+                "float": float_val,
+                "rareza": rareza,
+                "is_st": is_st,
+            })
+        except (KeyError, TypeError):
+            continue
+    return grupos
 
 
-def calcular_promedio(nombre):
-    h = precios_promedio[nombre]
-    if len(h) < 3:
-        return None
-    return sum(h) / len(h)
-
-
-def build_embed(nombre, precio, referencia, descuento, float_val, rareza, is_st, url_skin, precio_2=None, metodo="vs promedio"):
+def build_embed(nombre, precio, mediano, descuento, float_val, rareza, is_st, url_skin, total_listings):
     st_tag = "StatTrak™ " if is_st else ""
     if descuento >= 30:
         color = discord.Color.red()
@@ -107,17 +118,16 @@ def build_embed(nombre, precio, referencia, descuento, float_val, rareza, is_st,
     embed = discord.Embed(
         title=f"🔥 {st_tag}{nombre}",
         url=url_skin,
-        description=f"Skin detectado con **{descuento:.1f}% de descuento** ({metodo})",
+        description=f"Skin detectado con **{descuento:.1f}% de descuento** vs mediano CSFloat",
         color=color,
         timestamp=datetime.utcnow()
     )
-    embed.add_field(name="💰 Precio (1ro)", value=f"**${precio:.2f}**", inline=True)
-    if precio_2:
-        embed.add_field(name="📋 Precio (2do)", value=f"${precio_2:.2f}", inline=True)
-    embed.add_field(name="📊 Referencia", value=f"${referencia:.2f}", inline=True)
+    embed.add_field(name="💰 Precio", value=f"**${precio:.2f}**", inline=True)
+    embed.add_field(name="📊 Mediano CSFloat", value=f"${mediano:.2f}", inline=True)
     embed.add_field(name="📉 Descuento", value=f"**{descuento:.1f}%**", inline=True)
     embed.add_field(name="🔢 Float", value=f"`{float_val:.6f}`", inline=True)
     embed.add_field(name="💎 Rareza", value=rareza or "N/A", inline=True)
+    embed.add_field(name="📋 Listings del skin", value=str(total_listings), inline=True)
     embed.add_field(name="🔗 Link", value=f"[Ver en CSFloat]({url_skin})", inline=True)
     embed.set_footer(text="CSFloat Alert Bot")
     return embed
@@ -145,57 +155,50 @@ async def monitorear():
         print("No se obtuvieron listings.")
         return
 
-    listings_por_skin.clear()
-    for item in listings:
-        try:
-            nombre     = item["item"].get("market_hash_name", "Desconocido")
-            precio     = item["price"] / 100
-            float_val  = item["item"].get("float_value", 0)
-            listing_id = item["id"]
-            is_st      = item["item"].get("is_stattrak", False)
-            rareza     = item["item"].get("rarity_name", "")
-            listings_por_skin[nombre].append((precio, listing_id, float_val, rareza, is_st))
-            actualizar_promedio(nombre, precio)
-        except (KeyError, TypeError):
-            continue
+    grupos = agrupar_por_skin(listings)
+    print(f"[DEBUG] Skins unicos encontrados: {len(grupos)}")
 
-    for nombre, items in listings_por_skin.items():
+    for nombre, items in grupos.items():
         try:
-            if len(items) < 2:
+            # Necesitamos al menos MIN_LISTINGS_PARA_MEDIANO para calcular mediano confiable
+            if len(items) < MIN_LISTINGS_PARA_MEDIANO:
                 continue
 
-            precio_1, id_1, float_1, rareza_1, is_st_1 = items[0]
-            precio_2, _, _, _, _ = items[1]
-            url_skin = f"https://csfloat.com/item/{id_1}"
+            precios = [i["precio"] for i in items]
+            mediano = statistics.median(precios)
 
-            diff_segundo  = ((precio_2 - precio_1) / precio_2) * 100
-            promedio      = calcular_promedio(nombre)
-            diff_promedio = ((promedio - precio_1) / promedio) * 100 if promedio else 0
+            # Ordenar por precio para analizar los más baratos primero
+            items_ordenados = sorted(items, key=lambda x: x["precio"])
 
-            es_ganga_vs_segundo  = diff_segundo  >= DESCUENTO_VS_SEGUNDO and precio_1 < precio_2
-            es_ganga_vs_promedio = diff_promedio >= DESCUENTO_MINIMO and promedio is not None
+            for item in items_ordenados:
+                precio     = item["precio"]
+                listing_id = item["id"]
+                float_val  = item["float"]
+                rareza     = item["rareza"]
+                is_st      = item["is_st"]
+                url_skin   = f"https://csfloat.com/item/{listing_id}"
 
-            if (es_ganga_vs_segundo or es_ganga_vs_promedio) and id_1 not in alertas_enviadas:
-                alertas_enviadas.add(id_1)
-                total_alertas += 1
+                # Solo alertar si el precio es MENOR que el mediano
+                if precio >= mediano:
+                    break  # Los siguientes serán más caros, no tiene sentido seguir
 
-                descuento_mostrar = max(diff_segundo, diff_promedio)
-                ref_mostrar       = precio_2 if diff_segundo >= diff_promedio else (promedio or precio_2)
-                metodo            = "vs 2do listing" if diff_segundo >= diff_promedio else "vs promedio"
+                descuento = ((mediano - precio) / mediano) * 100
 
-                embed = build_embed(
-                    nombre, precio_1, ref_mostrar, descuento_mostrar,
-                    float_1, rareza_1, is_st_1, url_skin,
-                    precio_2=precio_2, metodo=metodo
-                )
-                await canal.send(embed=embed)
-                print(f"[ALERTA] {nombre} — ${precio_1:.2f} ({descuento_mostrar:.1f}% off {metodo})")
+                if descuento >= DESCUENTO_MINIMO and listing_id not in alertas_enviadas:
+                    alertas_enviadas.add(listing_id)
+                    total_alertas += 1
+                    embed = build_embed(
+                        nombre, precio, mediano, descuento,
+                        float_val, rareza, is_st, url_skin, len(items)
+                    )
+                    await canal.send(embed=embed)
+                    print(f"[ALERTA] {nombre} — ${precio:.2f} ({descuento:.1f}% bajo mediano ${mediano:.2f})")
 
-        except (KeyError, TypeError, ZeroDivisionError) as e:
+        except Exception as e:
             print(f"[WARN] Error procesando {nombre}: {e}")
             continue
 
-    print(f"Revisados {len(listings)} listings ({len(listings_por_skin)} skins unicos).")
+    print(f"Revisados {len(listings)} listings ({len(grupos)} skins unicos).")
 
 
 # ============================================================
@@ -211,9 +214,8 @@ async def on_ready():
         embed = discord.Embed(
             title="✅ CSFloat Alert Bot iniciado",
             description=(
-                f"Descuento minimo vs promedio: **{DESCUENTO_MINIMO}%**\n"
-                f"Descuento minimo vs 2do listing: **{DESCUENTO_VS_SEGUNDO}%**\n"
-                f"Rango de precios: **${PRECIO_MIN_USD} - ${PRECIO_MAX_USD}**\n"
+                f"Descuento minimo vs mediano CSFloat: **{DESCUENTO_MINIMO}%**\n"
+                f"Minimo listings por skin: **{MIN_LISTINGS_PARA_MEDIANO}**\n"
                 f"Intervalo: cada **{INTERVALO_MINUTOS} minuto(s)**"
             ),
             color=discord.Color.blurple(),
@@ -236,11 +238,9 @@ async def estado(ctx):
     embed.add_field(name="Estado", value="⏸️ Pausado" if bot_pausado else "▶️ Activo", inline=True)
     embed.add_field(name="Uptime", value=f"{horas}h {minutos}m {segundos}s", inline=True)
     embed.add_field(name="Alertas enviadas", value=str(total_alertas), inline=True)
-    embed.add_field(name="Descuento vs promedio", value=f"{DESCUENTO_MINIMO}%", inline=True)
-    embed.add_field(name="Descuento vs 2do", value=f"{DESCUENTO_VS_SEGUNDO}%", inline=True)
-    embed.add_field(name="Rango precios", value=f"${PRECIO_MIN_USD} - ${PRECIO_MAX_USD}", inline=True)
+    embed.add_field(name="Descuento minimo", value=f"{DESCUENTO_MINIMO}%", inline=True)
+    embed.add_field(name="Min listings", value=str(MIN_LISTINGS_PARA_MEDIANO), inline=True)
     embed.add_field(name="Intervalo", value=f"{INTERVALO_MINUTOS} min", inline=True)
-    embed.add_field(name="Skins en memoria", value=str(len(precios_promedio)), inline=True)
     await ctx.send(embed=embed)
 
 
@@ -251,7 +251,7 @@ async def umbral(ctx, nuevo: int):
         await ctx.send("❌ El umbral debe estar entre 1 y 90.")
         return
     DESCUENTO_MINIMO = nuevo
-    await ctx.send(f"✅ Umbral vs promedio actualizado a **{DESCUENTO_MINIMO}%**")
+    await ctx.send(f"✅ Umbral actualizado a **{DESCUENTO_MINIMO}%**")
 
 
 @bot.command(name="pausa")
@@ -268,23 +268,6 @@ async def reanudar(ctx):
     await ctx.send("▶️ Monitoreo reanudado.")
 
 
-@bot.command(name="promedio")
-async def promedio(ctx):
-    if not precios_promedio:
-        await ctx.send("📭 Todavia no hay datos acumulados.")
-        return
-    top = sorted(precios_promedio.items(), key=lambda x: len(x[1]), reverse=True)[:5]
-    embed = discord.Embed(title="📈 Top skins con mas datos", color=discord.Color.gold())
-    for nombre, historial in top:
-        prom = sum(historial) / len(historial)
-        embed.add_field(
-            name=nombre[:40],
-            value=f"Promedio: **${prom:.2f}** ({len(historial)} muestras)",
-            inline=False
-        )
-    await ctx.send(embed=embed)
-
-
 # ============================================================
 # 🚀 INICIO
 # ============================================================
@@ -292,9 +275,7 @@ async def promedio(ctx):
 if __name__ == "__main__":
     print("=" * 55)
     print("  🎮 CSFloat Discord Alert Bot")
-    print(f"  Descuento vs promedio  : {DESCUENTO_MINIMO}%")
-    print(f"  Descuento vs 2do       : {DESCUENTO_VS_SEGUNDO}%")
-    print(f"  Rango de precios       : ${PRECIO_MIN_USD} - ${PRECIO_MAX_USD}")
-    print(f"  Intervalo              : cada {INTERVALO_MINUTOS} minutos")
+    print(f"  Descuento minimo : {DESCUENTO_MINIMO}%")
+    print(f"  Intervalo        : cada {INTERVALO_MINUTOS} minutos")
     print("=" * 55)
     bot.run(DISCORD_TOKEN)
