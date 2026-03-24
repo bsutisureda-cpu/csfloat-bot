@@ -1,10 +1,9 @@
 """
 CSFloat Alert Bot para Discord
 ================================
-Busca por mejores ofertas (best_deal) y compara el listing mas barato
-vs el segundo mas barato del mismo skin.
+Busca por mejores ofertas (best_deal), solo comprar ahora,
+rango $10-$200, sin stickers, y compara el 1ro vs 2do listing.
 Si la diferencia es X% o mas alerta en Discord.
-Solo skins SIN stickers.
 """
 
 import requests
@@ -24,6 +23,10 @@ CSFLOAT_API_KEY  = os.environ.get("CSFLOAT_API_KEY", "")
 
 # Diferencia minima entre 1ro y 2do listing para alertar
 DIFERENCIA_MINIMA = 10     # %
+
+# Rango de precios en dolares
+PRECIO_MIN_USD = 10
+PRECIO_MAX_USD = 200
 
 INTERVALO_MINUTOS = 1
 
@@ -51,22 +54,27 @@ def tiene_stickers(item):
 
 
 def get_listings():
-    """Obtiene hasta 500 listings activos de CSFloat ordenados por best_deal."""
+    """Obtiene hasta 500 listings activos de CSFloat."""
     url     = f"{CSFLOAT_BASE}/listings"
     headers = {
-    "Authorization": CSFLOAT_API_KEY,
-    "Content-Type": "application/json"
-}
-    todos   = []
+        "Authorization": CSFLOAT_API_KEY,
+        "Content-Type":  "application/json",
+        "User-Agent":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept":        "application/json",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    todos = []
 
     print(f"[DEBUG] API Key: '{CSFLOAT_API_KEY[:6] if CSFLOAT_API_KEY else 'VACIA'}'...")
 
     for page in range(10):
         params = {
-            "type":    "buy_now",
-            "limit":   50,
-            "sort_by": "best_deal",
-            "page":    page,
+            "type":      "buy_now",
+            "limit":     50,
+            "sort_by":   "best_deal",
+            "page":      page,
+            "min_price": int(PRECIO_MIN_USD * 100),
+            "max_price": int(PRECIO_MAX_USD * 100),
         }
         try:
             resp = requests.get(url, headers=headers, params=params, timeout=10)
@@ -148,7 +156,7 @@ def build_embed(nombre, precio_1, precio_2, diferencia, float_val, wear, rareza,
     embed.add_field(name="👕 Desgaste",     value=wear or "N/A",            inline=True)
     embed.add_field(name="💎 Rareza",       value=rareza or "N/A",          inline=True)
     embed.add_field(name="🔗 Link",         value=f"[Ver en CSFloat]({url_skin})", inline=True)
-    embed.set_footer(text="CSFloat Alert Bot • Sin stickers")
+    embed.set_footer(text="CSFloat Alert Bot • Sin stickers • Comprar ahora")
     return embed
 
 
@@ -179,11 +187,10 @@ async def monitorear():
 
     for nombre, items in grupos.items():
         try:
-            # Necesitamos al menos 2 listings del mismo skin
             if len(items) < 2:
                 continue
 
-            # Ordenar por precio dentro del grupo (de menor a mayor)
+            # Ordenar por precio dentro del grupo de menor a mayor
             items_ordenados = sorted(items, key=lambda x: x["precio"])
             primero = items_ordenados[0]
             segundo = items_ordenados[1]
@@ -191,7 +198,6 @@ async def monitorear():
             precio_1 = primero["precio"]
             precio_2 = segundo["precio"]
 
-            # Solo alertar si el 1ro es mas barato que el 2do
             if precio_1 >= precio_2:
                 continue
 
@@ -233,8 +239,9 @@ async def on_ready():
         embed = discord.Embed(
             title="✅ CSFloat Alert Bot iniciado",
             description=(
-                f"Modo: **Mejores ofertas (best deal)**\n"
+                f"Modo: **Mejores ofertas • Solo comprar ahora**\n"
                 f"Solo skins **sin stickers**\n"
+                f"Rango de precios: **${PRECIO_MIN_USD} - ${PRECIO_MAX_USD}**\n"
                 f"Diferencia minima 1ro vs 2do: **{DIFERENCIA_MINIMA}%**\n"
                 f"Intervalo: cada **{INTERVALO_MINUTOS} minuto(s)**"
             ),
@@ -259,6 +266,7 @@ async def estado(ctx):
     embed.add_field(name="Uptime",          value=f"{horas}h {minutos}m {segundos}s",           inline=True)
     embed.add_field(name="Alertas totales", value=str(total_alertas),                            inline=True)
     embed.add_field(name="Diferencia min",  value=f"{DIFERENCIA_MINIMA}%",                       inline=True)
+    embed.add_field(name="Rango precios",   value=f"${PRECIO_MIN_USD} - ${PRECIO_MAX_USD}",      inline=True)
     embed.add_field(name="Intervalo",       value=f"{INTERVALO_MINUTOS} min",                    inline=True)
     await ctx.send(embed=embed)
 
@@ -295,6 +303,8 @@ if __name__ == "__main__":
     print("=" * 55)
     print("  🎮 CSFloat Discord Alert Bot")
     print(f"  Modo          : Mejores ofertas (best_deal)")
+    print(f"  Tipo          : Solo comprar ahora")
+    print(f"  Rango         : ${PRECIO_MIN_USD} - ${PRECIO_MAX_USD}")
     print(f"  Diferencia min: {DIFERENCIA_MINIMA}%")
     print(f"  Stickers      : Ignorados")
     print(f"  Intervalo     : cada {INTERVALO_MINUTOS} minutos")
